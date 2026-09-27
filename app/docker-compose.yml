@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  init-permissions:
+    image: alpine:latest
+    container_name: rezepte-init
+    restart: "no"
+    volumes:
+      - /volume1/docker/rezepte/db:/mnt/db
+      - /volume1/docker/rezepte/data:/mnt/data
+    command: >
+      sh -c "
+        chown -R 999:999 /mnt/db &&
+        chown -R 1000:1000 /mnt/data &&
+        chmod -R 750 /mnt/db &&
+        chmod -R 755 /mnt/data &&
+        echo 'Rechte gesetzt.'
+      "
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rezepte-db
+    restart: unless-stopped
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: rezepte
+      POSTGRES_USER: rezepte
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - /volume1/docker/rezepte/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rezepte"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    image: rezepte-app:latest
+    container_name: rezepte-app
+    restart: unless-stopped
+    ports:
+      - "3020:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - /volume1/docker/rezepte/data:/data
+      - /volume1/docker/rezepte/app/frontend/public:/app/frontend/public
+      - /volume1/docker/rezepte/app/backend/routes:/app/routes
+      - /volume1/docker/rezepte/app/backend/services:/app/services
+      - /volume1/docker/rezepte/app/backend/middleware:/app/middleware
+      - /volume1/docker/rezepte/app/backend/db.js:/app/db.js
+      - /volume1/docker/rezepte/app/backend/server.js:/app/server.js
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: rezepte
+      DB_USER: rezepte
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      IMAGE_DIR: /data/images
+      PEXELS_API_KEY: ${PEXELS_API_KEY}
+      NODE_ENV: production
+      COOKIE_SECURE: "false"
+      SMTP_HOST: "smtp-relay.brevo.com"
+      SMTP_PORT: "587"
+      SMTP_SECURE: "false"
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: "Rezepte App <js@scherbaum.cc>"
+      APP_URL: "https://rezepte.scherbaum.app"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+
+networks:
+  default:
+    name: rezepte-net
